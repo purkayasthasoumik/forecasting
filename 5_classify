@@ -1,0 +1,338 @@
+############# LIBRARY #############
+require(dplyr)
+require(caret)
+require(partykit)
+
+############# DATA FETCH #############
+demInfo <- read.csv("/home/rstudio/datasets/demInfo.csv", header = T)
+age <- read.csv("/home/rstudio/datasets/minDates.csv", header = T)[, c(2, 5)]
+names(age) <- c("store_nbr", "og_age")
+demInfo <- dplyr::filter(demInfo, store_nbr %in%  age$store_nbr)
+demInfo <- merge(demInfo, age)
+
+demInfo$badE <- ifelse(demInfo$store_nbr %in% badStores.q1$`10`, "BAD", "GOOD")
+demInfo$badT <- ifelse(demInfo$store_nbr %in% badStores.q4$`43`, "BAD", "GOOD")
+demInfo$badC <- ifelse(demInfo$store_nbr %in% badStores.q4$`48`, "BAD", "GOOD")
+
+############# CLASSIFICATION #############
+
+####### EASTER #######
+    ## SPLITS: TRAINING VS TEST ####
+    
+    set.seed(7691)
+    q1.demInfo <- filter(demInfo, store_nbr %in% q1$`Store IDs`)
+    trainE <- createDataPartition(q1.demInfo[,1], p=0.80, list = FALSE)
+    
+    ## DRIVER FINDING ####
+    ########income
+    cbind(anova(lm(low_income_pct ~ badE, data=q1.demInfo[trainE, ]))[[5]][1],
+          anova(lm(mid_income_pct ~ badE, data=q1.demInfo[trainE, ]))[[5]][1],
+          anova(lm(hi_income_pct ~ badE, data=q1.demInfo[trainE, ]))[[5]][1])
+    plotly::plot_ly()%>%
+      add_trace(x=q1.demInfo$low_income_pct[trainE], y=q1.demInfo$badE[trainE], type="box", name="Low%")%>%
+      add_trace(x=q1.demInfo$mid_income_pct[trainE], y=q1.demInfo$badE[trainE], type="box", name="Mid%")%>%
+      add_trace(x=q1.demInfo$hi_income_pct[trainE], y=q1.demInfo$badE[trainE], type="box", name="High%")%>%
+      layout(boxmode="group")
+    ########gender - male
+    cbind(anova(lm(male_student ~ badE, data=q1.demInfo[trainE, ]))[[5]][1],
+          anova(lm(male_working_young ~ badE, data=q1.demInfo[trainE, ]))[[5]][1],
+          anova(lm(male_working_old ~ badE, data=q1.demInfo[trainE, ]))[[5]][1],
+          anova(lm(male_retired ~ badE, data=q1.demInfo[trainE, ]))[[5]][1])
+    plotly::plot_ly()%>%
+      add_trace(x=q1.demInfo$male_student[trainE], y=q1.demInfo$badE[trainE], type="box", name="Male: Student%")%>%
+      add_trace(x=q1.demInfo$male_working_young[trainE], y=q1.demInfo$badE[trainE], type="box", name="Male: Working; Young%")%>%
+      add_trace(x=q1.demInfo$male_working_old[trainE], y=q1.demInfo$badE[trainE], type="box", name="Male: Working; Old%")%>%
+      add_trace(x=q1.demInfo$male_retired[trainE], y=q1.demInfo$badE[trainE], type="box", name="Male: Retired%")%>%
+      layout(boxmode="group")
+    ########gender - female
+    cbind(anova(lm(female_student ~ badE, data=q1.demInfo[trainE, ]))[[5]][1],
+          anova(lm(female_working_young ~ badE, data=q1.demInfo[trainE, ]))[[5]][1],
+          anova(lm(female_working_old ~ badE, data=q1.demInfo[trainE, ]))[[5]][1],
+          anova(lm(female_retired ~ badE, data=q1.demInfo[trainE, ]))[[5]][1])
+    plotly::plot_ly()%>%
+      add_trace(x=q1.demInfo$female_student[trainE], y=q1.demInfo$badE[trainE], type="box", name="Female: Student%")%>%
+      add_trace(x=q1.demInfo$female_working_young[trainE], y=q1.demInfo$badE[trainE], type="box", name="Female: Working; Young%")%>%
+      add_trace(x=q1.demInfo$female_working_old[trainE], y=q1.demInfo$badE[trainE], type="box", name="Female: Working; Old%")%>%
+      add_trace(x=q1.demInfo$female_retired[trainE], y=q1.demInfo$badE[trainE], type="box", name="Female: Retired%")%>%
+      layout(boxmode="group")
+    ########education
+    cbind(anova(lm(adult_low_ed_pct ~ badE, data=q1.demInfo[trainE, ]))[[5]][1],
+          anova(lm(adult_med_ed_pct ~ badE, data=q1.demInfo[trainE, ]))[[5]][1],
+          anova(lm(adult_hi_ed_pct ~ badE, data=q1.demInfo[trainE, ]))[[5]][1])
+    plotly::plot_ly()%>%
+      add_trace(x=q1.demInfo$adult_low_ed_pct[trainE], y=q1.demInfo$badE[trainE], type="box", name="Low%")%>%
+      add_trace(x=q1.demInfo$adult_med_ed_pct[trainE], y=q1.demInfo$badE[trainE], type="box", name="Med%")%>%
+      add_trace(x=q1.demInfo$adult_hi_ed_pct[trainE], y=q1.demInfo$badE[trainE], type="box", name="High%")%>%
+      layout(boxmode="group")
+    ########store age
+    anova(lm(og_age ~ badE, data=q1.demInfo[trainE, ]))[[5]][1]
+    plotly::plot_ly()%>%
+      add_trace(x=q1.demInfo$og_age[trainE], y=q1.demInfo$badE[trainE], type="box", name="OG age")%>%
+      layout(boxmode="group")
+    
+    driversE <- c("low_income_pct", "male_working_young" , "female_working_old",
+                  "adult_low_ed_pct", "og_age", "badE")
+    
+    ## RF ####
+    
+    e.rf.tuneGrid <- expand.grid(
+      mtry = c(3:5))
+    trainControl <- caret::trainControl(## 10-fold CV
+      method = "repeatedcv",
+      number = 10,
+      ## repeated ten times
+      repeats = 10)
+    q1.E.rf <- caret::train(badE~.,
+                            data = q1.demInfo[trainE, driversE], 
+                            method = "rf", 
+                            trControl = trainControl, 
+                            verbose = FALSE, 
+                            tuneGrid = e.rf.tuneGrid
+    )
+    table(q1.demInfo[-trainE, "badE"], predict(q1.E.rf, q1.demInfo[-trainE,]))
+    
+    ## CF ####
+    formula <- badE ~ low_income_pct +
+      male_working_young +
+      female_working_old +
+      adult_low_ed_pct+
+      og_age
+    q1.demInfo$badE <- as.factor(q1.demInfo$badE)
+    q1.E.cf <- partykit::cforest(formula,
+                                 data = q1.demInfo[trainE, driversE],
+                                 weights = ifelse(q1.demInfo[trainE, "badE"]=="BAD", 6, 1),
+                                 control = partykit::ctree_control(
+                                   alpha = 0.05, 
+                                   maxdepth = 4
+                                 )
+    )
+    table(q1.demInfo[-trainE, "badE"], predict(q1.E.cf, q1.demInfo[-trainE, ]))
+    ## ENSEMBLE MODEL ####
+    e.rf.probs = data.frame(predict(q1.E.rf, q1.demInfo[, driversE], type="prob"), type=q1.demInfo[, "badE"])
+    e.cf.probs = data.frame(predict(q1.E.cf, q1.demInfo[, driversE], type="prob"), type=q1.demInfo[, "badE"])
+    
+    e.ensemble <- data.frame(rf.good = e.rf.probs$GOOD, rf.bad = e.rf.probs$BAD, 
+                             cf.good = e.cf.probs$GOOD, cf.bad = e.cf.probs$BAD, 
+                             actuals = e.rf.probs$type)
+    
+    e.tree<-randomForest::randomForest(actuals~., 
+                                       data = e.ensemble,
+                                       mtry = 3
+    )
+    
+  #confusion matrix
+  confusionMatrix(table(q1.demInfo[-trainE, "badE"],
+                                 as.factor(predict(e.tree, e.ensemble[-trainE,], type = "response"))))
+    
+  
+####### THANKSGIVING #######
+    ## SPLITS: TRAINING VS TEST ####
+    
+    set.seed(1234)
+    q4.demInfo <- filter(demInfo, store_nbr %in% q4$`Store IDs`)
+    trainT <- caret::createDataPartition(q4.demInfo[,1], p=0.80, list = FALSE)
+    
+    ## DRIVER FINDING ####
+    #income
+    cbind(anova(lm(low_income_pct ~ badT, data=q4.demInfo[trainT, ]))[[5]][1],
+          anova(lm(mid_income_pct ~ badT, data=q4.demInfo[trainT, ]))[[5]][1],
+          anova(lm(hi_income_pct ~ badT, data=q4.demInfo[trainT, ]))[[5]][1])
+    plotly::plot_ly()%>%
+      add_trace(x=q4.demInfo$low_income_pct[trainT], y=q4.demInfo$badT[trainT], type="box", name="Low%")%>%
+      add_trace(x=q4.demInfo$mid_income_pct[trainT], y=q4.demInfo$badT[trainT], type="box", name="Mid%")%>%
+      add_trace(x=q4.demInfo$hi_income_pct[trainT], y=q4.demInfo$badT[trainT], type="box", name="High%")%>%
+      layout(boxmode="group")
+    #gender - male
+    cbind(anova(lm(male_student ~ badT, data=q4.demInfo[trainT, ]))[[5]][1],
+          anova(lm(male_working_young ~ badT, data=q4.demInfo[trainT, ]))[[5]][1],
+          anova(lm(male_working_old ~ badT, data=q4.demInfo[trainT, ]))[[5]][1],
+          anova(lm(male_retired ~ badT, data=q4.demInfo[trainT, ]))[[5]][1])
+    plotly::plot_ly()%>%
+      add_trace(x=q4.demInfo$male_student[trainT], y=q4.demInfo$badT[trainT], type="box", name="Male: Student%")%>%
+      add_trace(x=q4.demInfo$male_working_young[trainT], y=q4.demInfo$badT[trainT], type="box", name="Male: Working; Young%")%>%
+      add_trace(x=q4.demInfo$male_working_old[trainT], y=q4.demInfo$badT[trainT], type="box", name="Male: Working; Old%")%>%
+      add_trace(x=q4.demInfo$male_retired[trainT], y=q4.demInfo$badT[trainT], type="box", name="Male: Retired%")%>%
+      layout(boxmode="group")  
+    #gender - female
+    cbind(anova(lm(female_student ~ badT, data=q4.demInfo[trainT, ]))[[5]][1],
+          anova(lm(female_working_young ~ badT, data=q4.demInfo[trainT, ]))[[5]][1],
+          anova(lm(female_working_old ~ badT, data=q4.demInfo[trainT, ]))[[5]][1],
+          anova(lm(female_retired ~ badT, data=q4.demInfo[trainT, ]))[[5]][1])
+    plotly::plot_ly()%>%
+      add_trace(x=q4.demInfo$female_student[trainT], y=q4.demInfo$badT[trainT], type="box", name="Fefemale: Student%")%>%
+      add_trace(x=q4.demInfo$female_working_young[trainT], y=q4.demInfo$badT[trainT], type="box", name="Fefemale: Working; Young%")%>%
+      add_trace(x=q4.demInfo$female_working_old[trainT], y=q4.demInfo$badT[trainT], type="box", name="Fefemale: Working; Old%")%>%
+      add_trace(x=q4.demInfo$female_retired[trainT], y=q4.demInfo$badT[trainT], type="box", name="Fefemale: Retired%")%>%
+      layout(boxmode="group") 
+    #education
+    cbind(anova(lm(adult_low_ed_pct ~ badT, data=q4.demInfo[trainT,]))[[5]][1],
+          anova(lm(adult_med_ed_pct ~ badT, data=q4.demInfo[trainT,]))[[5]][1],
+          anova(lm(adult_hi_ed_pct ~ badT, data=q4.demInfo[trainT,]))[[5]][1])
+    plotly::plot_ly()%>%
+      add_trace(x=q4.demInfo$adult_low_ed_pct, y=q4.demInfo$badT, type="box", name="Low%")%>%
+      add_trace(x=q4.demInfo$adult_med_ed_pct, y=q4.demInfo$badT, type="box", name="Med%")%>%
+      add_trace(x=q4.demInfo$adult_hi_ed_pct, y=q4.demInfo$badT, type="box", name="High%")%>%
+      layout(boxmode="group")
+    #store age
+    anova(lm(og_age ~ badT, data=q4.demInfo))[[5]][1]
+    plotly::plot_ly()%>%
+      add_trace(x=q4.demInfo$og_age, y=q4.demInfo$badT, type="box", name="OG age")%>%
+      layout(boxmode="group")
+    driversT <- c("low_income_pct", "male_working_young", "female_working_young","adult_med_ed_pct", "og_age", "badT")
+    
+    ## RF ####
+    t.rf.tuneGrid <- expand.grid(
+      mtry = c(2:4))
+    trainControl <- caret::trainControl(## 10-fold CV
+      method = "repeatedcv",
+      number = 10,
+      ## repeated ten times
+      repeats = 10)
+    q4.T.rf <- caret::train(badT~.,
+                            data = q4.demInfo[trainT, driversT], 
+                            method = "rf", 
+                            trControl = trainControl, 
+                            verbose = FALSE, 
+                            tuneGrid = t.rf.tuneGrid
+    )
+    table(q4.demInfo[-trainT, "badT"], predict(q4.T.rf, q4.demInfo[-trainT, ]))
+    ## CF ####
+    formula <- badT ~ low_income_pct +
+      male_working_young + 
+      female_working_young +
+      adult_med_ed_pct+
+      og_age
+    q4.demInfo$badT <- as.factor(q4.demInfo$badT)
+    q4.T.cf <- partykit::cforest(formula,
+                                 data = q4.demInfo[trainT, driversT],
+                                 weights = ifelse(q4.demInfo[trainT, "badT"]=="BAD", 6, 1),
+                                 control = partykit::ctree_control(
+                                   alpha = 0.05, 
+                                   maxdepth = 4
+                                 )
+    )
+    table(q4.demInfo[-trainT, "badT"], predict(q4.T.cf, q4.demInfo[-trainT,]))
+    ## ENSEMBLE MODEL ####
+    t.rf.probs = data.frame(predict(q4.T.rf, q4.demInfo[, driversT], type="prob"), type=q4.demInfo[, "badT"])
+    t.cf.probs = data.frame(predict(q4.T.cf, q4.demInfo[, driversT], type="prob"), type=q4.demInfo[, "badT"])
+    
+    t.ensemble <- data.frame(rf.good = t.rf.probs$GOOD, rf.bad = t.rf.probs$BAD, cf.good = t.cf.probs$GOOD, cf.bad = t.cf.probs$BAD, actuals = t.rf.probs$type)
+    
+    t.tree<-randomForest::randomForest(actuals~., 
+                                       data = t.ensemble,
+                                       mtry = 3
+    )
+    #confusion matrix
+    confusionMatrix(table(q4.demInfo[-trainT, "badT"],
+                                 as.factor(predict(t.tree, t.ensemble[-trainT,], type = "response"))))
+    
+    
+    
+####### CHRISTMAS #######
+    ## SPLITS: TRAINING VS TEST ####
+    set.seed(6991)
+    q4.demInfo <- filter(demInfo, store_nbr %in% q4$`Store IDs`)
+    trainC <- createDataPartition(q4.demInfo[,1], p=0.80, list = FALSE)
+    ## DRIVER FINDING ####
+    #income
+    cbind(anova(lm(low_income_pct ~ badC, data=q4.demInfo[trainC,]))[[5]][1],
+          anova(lm(mid_income_pct ~ badC, data=q4.demInfo[trainC,]))[[5]][1],
+          anova(lm(hi_income_pct ~ badC, data=q4.demInfo[trainC,]))[[5]][1])
+    plotly::plot_ly()%>%
+      add_trace(x=q4.demInfo$low_income_pct[trainC], y=q4.demInfo$badC[trainC], type="box", name="Low%")%>%
+      add_trace(x=q4.demInfo$mid_income_pct[trainC], y=q4.demInfo$badC[trainC], type="box", name="Mid%")%>%
+      add_trace(x=q4.demInfo$hi_income_pct[trainC], y=q4.demInfo$badC[trainC], type="box", name="High%")%>%
+      layout(boxmode="group")
+    #gender - male
+    cbind(anova(lm(male_student ~ badC, data=q4.demInfo[trainC,]))[[5]][1],
+          anova(lm(male_working_young ~ badC, data=q4.demInfo[trainC,]))[[5]][1],
+          anova(lm(male_working_old ~ badC, data=q4.demInfo[trainC,]))[[5]][1])
+    plotly::plot_ly()%>%
+      add_trace(x=q4.demInfo$male_student[trainC], y=q4.demInfo$badC[trainC], type="box", name="Male:Minor%")%>%
+      add_trace(x=q4.demInfo$male_working_young[trainC], y=q4.demInfo$badC[trainC], type="box", name="Male:Young%")%>%
+      add_trace(x=q4.demInfo$male_working_old[trainC], y=q4.demInfo$badC[trainC], type="box", name="Male:Old%")%>%
+      layout(boxmode="group")
+    #gender - female
+    cbind(anova(lm(female_student ~ badC, data=q4.demInfo[trainC,]))[[5]][1],
+          anova(lm(female_working_young ~ badC, data=q4.demInfo[trainC,]))[[5]][1],
+          anova(lm(female_working_old ~ badC, data=q4.demInfo[trainC,]))[[5]][1])
+    plotly::plot_ly()%>%
+      add_trace(x=q4.demInfo$female_student[trainC], y=q4.demInfo$badC[trainC], type="box", name="Female:Minor%")%>%
+      add_trace(x=q4.demInfo$female_working_young[trainC], y=q4.demInfo$badC[trainC], type="box", name="Female:Young%")%>%
+      add_trace(x=q4.demInfo$female_working_old[trainC], y=q4.demInfo$badC[trainC], type="box", name="Female:Old%")%>%
+      layout(boxmode="group")
+    #education
+    cbind(anova(lm(adult_low_ed_pct ~ badC, data=q4.demInfo[trainC,]))[[5]][1],
+          anova(lm(adult_med_ed_pct ~ badC, data=q4.demInfo[trainC,]))[[5]][1],
+          anova(lm(adult_hi_ed_pct ~ badC, data=q4.demInfo[trainC,]))[[5]][1])
+    plotly::plot_ly()%>%
+      add_trace(x=q4.demInfo$adult_low_ed_pct[trainC], y=q4.demInfo$badC[trainC], type="box", name="Low%")%>%
+      add_trace(x=q4.demInfo$adult_med_ed_pct[trainC], y=q4.demInfo$badC[trainC], type="box", name="Med%")%>%
+      add_trace(x=q4.demInfo$adult_hi_ed_pct[trainC], y=q4.demInfo$badC[trainC], type="box", name="High%")%>%
+      layout(boxmode="group")
+    #store age
+    anova(lm(og_age ~ badT, data=q4.demInfo))[[5]][1]
+    plotly::plot_ly()%>%
+      add_trace(x=q4.demInfo$og_age, y=q4.demInfo$badT, type="box", name="OG age")%>%
+      layout(boxmode="group")
+    
+    
+    driversC <- c("mid_income_pct","male_working_young" ,"female_working_young", "adult_hi_ed_pct",  "og_age", "badC")
+    
+    
+    ## RF ####
+    t.rf.tuneGrid <- expand.grid(
+      mtry = c(2:4))
+    trainControl <- caret::trainControl(## 10-fold CV
+      method = "repeatedcv",
+      number = 10,
+      ## repeated ten times
+      repeats = 10)
+    q4.C.rf <- caret::train(badC~.,
+                            data = q4.demInfo[trainC, driversC], 
+                            method = "rf", 
+                            trControl = trainControl, 
+                            verbose = FALSE, 
+                            tuneGrid = t.rf.tuneGrid
+    )
+    table(q4.demInfo[-trainC, "badC"], predict(q4.C.rf, q4.demInfo[-trainC, ]))
+    ## CF ####
+    formula <- badC ~ mid_income_pct +
+      male_working_young+
+      female_working_young+
+      adult_hi_ed_pct+
+      og_age
+    
+    q4.demInfo$badC <- as.factor(q4.demInfo$badC)
+    
+    q4.C.cf <- partykit::cforest(formula,
+                                 data = q4.demInfo[trainC, driversC],
+                                 weights = ifelse(q4.demInfo[trainC, "badC"]=="BAD", 6, 1),
+                                 control = partykit::ctree_control(
+                                   alpha = 0.05, 
+                                   maxdepth = 4
+                                 )
+    )
+    table(q4.demInfo[-trainC, "badT"], predict(q4.C.cf, q4.demInfo[-trainC,]))
+    
+    
+    
+    
+    
+    ## ENSEMBLE MODEL ####
+    c.rf.probs = data.frame(predict(q4.C.rf, q4.demInfo[, driversC], type="prob"), type=q4.demInfo[, "badT"])
+    c.cf.probs = data.frame(predict(q4.C.cf, q4.demInfo[, driversC], type="prob"), type=q4.demInfo[, "badT"])
+    
+    c.ensemble <- data.frame(rf.good = c.rf.probs$GOOD, rf.bad = c.rf.probs$BAD, 
+                           cf.good = c.cf.probs$GOOD, cf.bad = c.cf.probs$BAD, 
+                           actuals = c.rf.probs$type)
+    
+    c.tree<-randomForest::randomForest(actuals~., 
+                                       data = c.ensemble,
+                                       mtry = 3
+    )
+    
+    #confusion matrix
+    caret::confusionMatrix(table(q4.demInfo[-trainC, "badT"],
+                                 as.factor(predict(c.tree, c.ensemble[-trainC, ], type = "response"))))
+    
