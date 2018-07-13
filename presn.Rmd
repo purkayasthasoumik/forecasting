@@ -1,0 +1,572 @@
+---
+title: "Forecasting of OG orders"
+author: "Appendix"
+date: 
+output: html_document
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rmarkdown)
+library(plotly)
+library(kableExtra)
+library(stargazer)
+load("~/Desktop/work/presentation/currentWorkspace.RData")
+```
+<div style="text-align: justify">  
+<br>
+<br>
+<br>
+
+# Models
+
+##Bayesian Structure Time Series
+
+BSTS Model is a **Structural Time Series Model**.
+
+Observation Equation: 
+$$y_t = Z_t^T \alpha_t + \epsilon_t \  \ldots \ \epsilon_t \sim N(0, H_t)$$
+Transition Equation: 
+$$\alpha_t = T_t \alpha_t + R_t \eta_t \  \ldots \ \eta_t \sim N(0, Q_t)$$
+$Z_t$, $T_t$ and $R_t$are model matrices - having a mix of known values and unknown estimable parameters. 
+
+The basic structural model we make use of is as follows
+
+$$ log(y_t) = \mu_t + \tau_t + \beta^T x + \epsilon_t$$
+$$ \mu_t = \mu_{t-1} + \delta_{t-1} + \nu_t $$
+$$ \delta_t = D + \phi (\delta_{t-1} - D) + \eta_t $$
+$$ \tau_t = \sum_{s=1}^{P} \tau_{t-s} + \omega_t$$
+Current level of the trend is $\mu_t$, curent slope is $\delta_t$. The seasonal component is $\tau_t$, where P is the number of seasons in a year. P is strictly integral here. The semi-local linear trend model is similar to the local linear trend, but more useful for longterm forecasting. It assumes the level component moves according to a random walk, but the slope component moves according to an $AR_1$ process centered on a potentially nonzero value D. 
+
+
+## Trigonometric Box-Cox transform, ARMA errors, Trend, and Seasonal components model
+
+TBATS is a **State space time series model**.
+
+$$y_t^{(\omega)} = Box- Cox (y_t, \omega)$$
+$$ y_t^{(\omega)} = l_{t-1} + \phi \ b_{t-1} +  s_t + d_t$$
+$$ l_t = l_{t-1} + \phi \delta + \alpha \ d_t$$
+$$ b_t = (1-\phi) B + \phi \ b_t  + \beta \ d_t  $$
+Seasonal component involves a trigonometric representation using Fourier series.
+
+$$ d_t = \sum_{i=1}^{p} \phi_i d_{t-i} + \sum_{i=i}^{q} \theta_i \epsilon_{t-i} + \epsilon_t $$
+
+Here, $l_t$ is the local level, B is the long run trend, $b_t$ is the local slope. $d_t$ denotes an $ARMA\ (p,q)$ process. $\epsilon_t$ is white noise. The others are tuning parameters.
+
+ 
+
+# Phase 1
+## Plotting Seasonality 
+
+```{r seasonal1, echo=F, fig.align='center', fig.height=5, fig.width=10}
+plot_ly(x=~1:52)%>%
+  add_trace(y=~seas.bsts, type="scatter", mode="lines+markers", name="BSTS indices")%>%
+  add_trace(y=~seas.tbats, type="scatter", mode="lines+markers", name="TBATS indices")%>%
+  layout(xaxis=list(title="Weeks", linecolor="BLACK", linewidth=2, mirror=TRUE),
+         yaxis=list(title="Values of Seasonal Indices",linecolor="BLACK", linewidth=2, mirror=TRUE),
+         title="Seasonal Indices"
+         )%>%
+ config(displayModeBar = F) %>% 
+  add_trace(y=~seas, type="scatter", mode="lines+markers", name="Custom Seasonal indices", line=list(width=3))%>%
+  add_trace(y=~seas.wm, type="scatter", mode="lines+markers", name="Walmart(WM) Seasonal indices", line=list(width=3))
+```
+
+<br>
+<br>
+<br>
+
+We will do an analysis of the current forecasting model for each quarter.
+
+```{r table0, echo=FALSE, fig.align='center'}
+tab1<-matrix(c(11748, 11801, 11813, 1026, 
+               11709, 11714, 11726, 585, 
+               11722, 11727, 11739, 536,
+               11735, 11740, 11713, 828), ncol=4, byrow=T)
+colnames(tab1)<-c("Training Data Ends", "Test Data Starts", "Test Data Ends", "Number of Stores")
+rownames(tab1)<-c("Quarter 1","Quarter 2","Quarter 3","Quarter 4")
+
+kable(tab1) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))%>%
+  column_spec(2:4, bold = T)
+```
+<br>
+<br>
+<br>
+
+## Quarter 1
+
+- Time period: 11801 - 11813
+- Training period: Upto 11748.
+- 1026 stores studied. 
+- This quarter has 1 major festival: Easter, the 10th week of the quarter.
+- Current Model: BSTS + Walmart. Current accuracy stands at: 13%
+- Proposed Shift to: BSTS + Custom. Improved accuracy would be: 11%
+- Easter festival is a problem zone. We will come back to this later. 
+
+<br>
+<br>
+<br>
+
+```{r quarter 1w, echo=F, fig.align='center', fig.height=5, fig.width=10}
+summary.q1$weekPlot%>%
+ config(displayModeBar = F)%>%
+  add_trace(y=~cumsum(apply(summary.q1$bw.mat, 2, trimMean, trim=0.97))/seq_along(apply(summary.q1$bw.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Current Performance", line=list(width=3))%>%
+  add_trace(y=~cumsum(apply(summary.q1$bc.mat, 2, trimMean, trim=0.97))/seq_along(apply(summary.q1$bc.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Improvement after phase 1.", line=list(width=3))
+```
+
+<br>
+<br>
+<br>
+
+```{r quarter 1s, echo=F, fig.align='center', fig.height=5, fig.width=10}
+st.bc <- apply(summary.q1$bc.mat, 2, trimMean, trim= 0.96)
+st.bw <- apply(summary.q1$bw.mat, 2, trimMean, trim= 0.96)
+st.tc <- apply(summary.q1$tc.mat, 2, trimMean, trim= 0.96)
+st.tw <- apply(summary.q1$tw.mat, 2, trimMean, trim= 0.96)
+
+plot_ly()%>%
+          add_trace(x=~st.bc, type="box", name="BSTS+Custom")%>%
+          add_trace(x=~st.bw, type="box", name="BSTS+Walmart")%>%
+          add_trace(x=~st.tc, type="box", name="TBATS+Custom")%>%
+          add_trace(x=~st.tw, type="box", name="TBATS+Walmart")%>%
+          layout(title="Store wise MAPE for Quarter 1",
+                 xaxis=list(title="MAPE", linewidth=2, mirror=T, linecolor="BLACK"),
+                 yaxis=list(linewidth=2, mirror=T, linecolor="BLACK"))%>%
+          config(displayModeBar = F)
+```
+<br>
+<br>
+<br>
+
+## Quarter 2
+
+- Time period: 11714 - 11726.
+- Training period: Upto 11709.
+- 585 stores studied. 
+- This quarter has no major festival. 
+- Current Model: BSTS + Walmart. Current accuracy stands at: 19%
+- Proposed Shift to: TBATS + Custom. Improved accuracy would be: 15%
+
+<br>
+<br>
+<br>
+
+```{r quarter 2w, echo=F, fig.align='center', fig.height=5, fig.width=10}
+summary.q2$weekPlot%>%
+ config(displayModeBar = F)%>%
+  add_trace(y=~cumsum(apply(summary.q2$bw.mat, 2, trimMean, trim=0.97))/seq_along(apply(summary.q1$bw.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Current Performance", line=list(width=3))%>%
+  add_trace(y=~cumsum(apply(summary.q2$tc.mat, 2, trimMean, trim=0.97))/seq_along(apply(summary.q1$tc.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Improvement after phase 1.", line=list(width=3))
+```
+<br>
+<br>
+<br>
+```{r quarter 2s, echo=F, fig.align='center', fig.height=5, fig.width=10}
+st.bc <- apply(summary.q2$bc.mat, 2, trimMean, trim= 0.96)
+st.bw <- apply(summary.q2$bw.mat, 2, trimMean, trim= 0.96)
+st.tc <- apply(summary.q2$tc.mat, 2, trimMean, trim= 0.96)
+st.tw <- apply(summary.q2$tw.mat, 2, trimMean, trim= 0.96)
+
+plot_ly()%>%
+          add_trace(x=~st.bc, type="box", name="BSTS+Custom")%>%
+          add_trace(x=~st.bw, type="box", name="BSTS+Walmart")%>%
+          add_trace(x=~st.tc, type="box", name="TBATS+Custom")%>%
+          add_trace(x=~st.tw, type="box", name="TBATS+Walmart")%>%
+          layout(title="Store wise MAPE for Quarter 2",
+                 xaxis=list(title="MAPE", linewidth=2, mirror=T, linecolor="BLACK"),
+                 yaxis=list(linewidth=2, mirror=T, linecolor="BLACK"))%>%
+          config(displayModeBar = F)
+```
+ <br>
+<br>
+<br>
+
+## Quarter 3
+
+- Time period: 11727 - 11739.
+- Training period: Upto 11722.
+- 536 stores studied. 
+- This quarter has no major festival, but sales were greatly affected by hurricanes. **The most affected week was the 7th week, because of Hurricane Harvey.**
+- Current Model: BSTS + Walmart. Current accuracy stands at: 13.2%
+- Proposed Shift to: BSTS + Custom. Improved accuracy would be: 12.7%
+
+<br>
+<br>
+<br>
+
+```{r quarter 3w, echo=F, fig.align='center', fig.height=5, fig.width=10}
+summary.q3$weekPlot%>%
+ config(displayModeBar = F)%>%
+  add_trace(y=~cumsum(apply(summary.q3$bw.mat, 2, trimMean, trim=0.97))/seq_along(apply(summary.q1$bw.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Current Performance", line=list(width=3))%>%
+  add_trace(y=~cumsum(apply(summary.q3$bc.mat, 2, trimMean, trim=0.97))/seq_along(apply(summary.q1$tc.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Improvement after phase 1.", line=list(width=3))
+```
+<br>
+<br>
+<br> 
+
+```{r quarter 3s, echo=F, fig.align='center', fig.height=5, fig.width=10}
+st.bc <- apply(summary.q3$bc.mat, 2, trimMean, trim= 0.96)
+st.bw <- apply(summary.q3$bw.mat, 2, trimMean, trim= 0.96)
+st.tc <- apply(summary.q3$tc.mat, 2, trimMean, trim= 0.96)
+st.tw <- apply(summary.q3$tw.mat, 2, trimMean, trim= 0.96)
+
+plot_ly()%>%
+          add_trace(x=~st.bc, type="box", name="BSTS+Custom")%>%
+          add_trace(x=~st.bw, type="box", name="BSTS+Walmart")%>%
+          add_trace(x=~st.tc, type="box", name="TBATS+Custom")%>%
+          add_trace(x=~st.tw, type="box", name="TBATS+Walmart")%>%
+          layout(title="Store wise MAPE for Quarter 3",
+                 xaxis=list(title="MAPE", linewidth=2, mirror=T, linecolor="BLACK"),
+                 yaxis=list(linewidth=2, mirror=T, linecolor="BLACK"))%>%
+          config(displayModeBar = F)
+```
+<br>
+<br>
+<br>
+
+## Quarter 4
+
+- Time period: 11740 - 11752.
+- Training period: Upto 11735.
+- 828 stores studied. 
+- This quarter has 2 major festivals: Thanksgiving and Christmas.
+- Current Model: BSTS + Walmart. Current accuracy stands at: 25%
+- Proposed Shift to: BSTS + Custom. Improved accuracy would be: 19.2%
+
+<br>
+<br>
+<br>
+
+```{r quarter 4w, echo=F, fig.align='center', fig.height=5, fig.width=10}
+summary.q4$weekPlot%>%
+ config(displayModeBar = F)%>%
+  add_trace(y=~cumsum(apply(summary.q4$bw.mat, 2, trimMean, trim=0.97))/seq_along(apply(summary.q1$bw.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Current Performance", line=list(width=3))%>%
+  add_trace(y=~cumsum(apply(summary.q4$tc.mat, 2, trimMean, trim=0.97))/seq_along(apply(summary.q1$tc.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Improvement after phase 1.", line=list(width=3))
+```
+<br>
+<br>
+<br>
+
+```{r quarter 4s, echo=F, fig.align='center', fig.height=5, fig.width=10}
+st.bc <- apply(summary.q4$bc.mat, 2, trimMean, trim= 0.96)
+st.bw <- apply(summary.q4$bw.mat, 2, trimMean, trim= 0.96)
+st.tc <- apply(summary.q4$tc.mat, 2, trimMean, trim= 0.96)
+st.tw <- apply(summary.q4$tw.mat, 2, trimMean, trim= 0.96)
+
+plot_ly()%>%
+          add_trace(x=~st.bc, type="box", name="BSTS+Custom")%>%
+          add_trace(x=~st.bw, type="box", name="BSTS+Walmart")%>%
+          add_trace(x=~st.tc, type="box", name="TBATS+Custom")%>%
+          add_trace(x=~st.tw, type="box", name="TBATS+Walmart")%>%
+          layout(title="Store wise MAPE for Quarter 4",
+                 xaxis=list(title="MAPE", linewidth=2, mirror=T, linecolor="BLACK"),
+                 yaxis=list(linewidth=2, mirror=T, linecolor="BLACK"))%>%
+          config(displayModeBar = F)
+```
+
+
+
+# Phase 2
+
+## Introduction.
+
+- Focus on three time points: Easter, Thanksgiving and Christmas.
+- We want to find those stores due to which the models are experiencing an unexpected spike in forecasting error. 
+- We would ideally want a damped linear-like trend of weekly MAPE values for each quarter. Based on this expectation, we formulate some cutoff of the MAPE values. If value is less, then store is **GOOD**, else it is **BAD**.
+- This is done for all three festivals.
+- Cutoff values:
+    - For Easter: 0.32
+    - For Thanksgiving: 0.33
+    - For Christmas: 0.82.
+    
+
+## Finding driver variables.    
+
+- Suppose we already know (for a training set) if a store is GOOD/BAD. 
+- Each of these stores has some demographic/geographic behaviour. 
+- We want to see if we can leverage this information to build a classification model.
+- We use a technique called **ANOVA** to find how useful a variable will be in classifying a store.  
+- ANOVA is used to analyze the differences among group means in a variable that can be classified into two or more classes. 
+- In the ANOVA framework, the observed variance in a particular variable is partitioned into components attributable to different sources of variation - here, that component is the classification of a store as GOOD or BAD.
+- Also, if the group means are close to each other, then the variable is not a good going to be useful in classification. This is exploited by the ANOVA model. 
+
+## Classification
+
+<br>
+<br>
+<br>
+
+### Variable Importance
+
+<br>
+<br>
+<br>
+
+```{r img1, echo=FALSE, fig.cap="", out.width = '100%', fig.align="center"}
+knitr::include_graphics("/Users/s0p0124/Desktop/Screen Shot 2018-07-02 at 8.53.03 PM.png")
+```
+
+<br>
+<br>
+<br>
+
+### Confusion Matrices
+
+```{r img2, echo=FALSE, fig.cap="L: Easter, C: Thanksgiving, R: Christmas", out.width = '100%', fig.align="center"}
+knitr::include_graphics("/Users/s0p0124/Desktop/Screen Shot 2018-07-02 at 8.53.13 PM.png")
+```
+
+<br>
+<br>
+<br>
+
+# Phase 3: 
+
+- We can use the driver variables identified in **Phase 2** to build a regression model:
+    
+    $$Scaling\ Factor = f(x_1, x_2, \ldots,x_p)$$
+    
+$x_1, \ldots, x_p$ are the identified driver variables. Multicollinearity is a big problem in this approach, so we abandon this method. 
+
+- Instead, we repeat an exercise in classification. 
+    - find a common scaling factor for all Bad stores for Easter, Thanksgiving and Christmas.
+    - We use median of MAPE values of Bad stores. Obviously, this figure will not be available for the next cycle. 
+    - We can either use these figures next year as well, or find a model which helps in finding this scaling factor as a function of the demographic information of the Bad stores. (**Under exploration.**)
+    - $SF_E = 0.68$,  $SF_T = 0.66$ and $SF_C = 0.48$
+    
+
+<br>
+<br>
+<br>    
+    
+##
+```{r easterStoreMod, echo = FALSE, fig.align='center', fig.height=5, fig.width=10}
+library(outliers)
+q1.demInfo$scalingE <- 1/(1+summary.q1$bc.mat[summary.q1$data$`Store IDs` %in% q1.demInfo$store_nbr,10])
+q1.demInfo$scalingE <- ifelse(q1.demInfo$badE == "GOOD", 1, q1.demInfo$scalingE)
+q1.demInfo$scalingE <- round(ifelse(q1.demInfo$scalingE!=1,
+                                    median(q1.demInfo$scalingE[q1.demInfo$scalingE!=1]),
+                                                                       1),3)
+mod.summary.q1 <- summary.q1
+scalingE <- ifelse(mod.summary.q1$data$`Store IDs` %in% q1.demInfo$store_nbr, q1.demInfo$scalingE, NA) 
+scalingE <- ifelse(is.na(scalingE), 1, scalingE)              
+mod.summary.q1$data$BC[,10] <-  mod.summary.q1$data$BC[,10]*scalingE 
+mod.summary.q1 <- summarize(mod.summary.q1$data, 1)
+
+actuals.easter <- summary.q1$data$Observed[summary.q1$data$`Store IDs` %in% badStores.q1$`10`,10]
+phase1.easter <- summary.q1$data$BC[summary.q1$data$`Store IDs` %in% badStores.q1$`10`,10]
+phase3.easter <- mod.summary.q1$data$BC[summary.q1$data$`Store IDs` %in% badStores.q1$`10`,10]
+
+phase1.e.mape <- ifelse(actuals.easter >= phase1.easter, actuals.easter - phase1.easter, phase1.easter - actuals.easter)/actuals.easter
+
+phase3.e.mape <- ifelse(actuals.easter >= phase3.easter, actuals.easter - phase3.easter, phase3.easter - actuals.easter)/actuals.easter
+
+plot_ly()%>%
+  add_trace(y= phase1.e.mape[phase1.e.mape <= quantile(phase1.e.mape, 0.90)], x = rep("Phase 1", round(0.90*length(actuals.easter))), name = "Store MAPEs after Phase 1.", type= "box", boxpoints = "all")%>%
+  add_trace(y= phase3.e.mape[phase3.e.mape <= quantile(phase3.e.mape, 0.90)], x = rep("Phase 3", round(0.90*length(actuals.easter))), name = "Store MAPEs after Phase 3.", type= "box", boxpoints = "all")%>%
+  config(displayModeBar = FALSE)%>%
+  layout(title="Store MAPEs for Easter Week.", 
+                 xaxis=list(title="MAPE", linewidth=2, mirror=T, linecolor="BLACK"), 
+                 yaxis=list(title="Phase", linewidth=2, mirror=T, linecolor="BLACK"))
+```
+
+<br>
+<br>
+<br>
+
+##
+```{r tgStoreMod, echo = FALSE, fig.align='center', fig.height=5, fig.width=10}
+library(outliers)
+q4.demInfo$scalingT <- 1/(1+summary.q4$tc.mat[summary.q4$data$`Store IDs` %in% q4.demInfo$store_nbr,4])
+q4.demInfo$scalingT <- ifelse(q4.demInfo$badT == "GOOD", 1, q4.demInfo$scalingT)
+q4.demInfo$scalingT <- round(ifelse(q4.demInfo$scalingT!=1,
+                                    median(q4.demInfo$scalingT[q4.demInfo$scalingT!=1]),
+                                                  1
+                                    ),3)
+                                             
+
+mod.summary.q4 <- summary.q4
+
+scaleT <- ifelse(mod.summary.q4$data$`Store IDs` %in% q4.demInfo$store_nbr, q4.demInfo$scalingT, NA)
+scaleT <- ifelse(is.na(scaleT), 1, scaleT)     
+
+mod.summary.q4$data$TC[,4] <-  mod.summary.q4$data$TC[,4]*scaleT 
+mod.summary.q4 <- summarize(mod.summary.q4$data, 1)
+
+
+actuals.tg <- summary.q4$data$Observed[summary.q4$data$`Store IDs` %in% badStores.q4$`43`,4]
+phase1.tg <- summary.q4$data$TC[summary.q4$data$`Store IDs` %in% badStores.q4$`43`,4]
+phase3.tg <- mod.summary.q4$data$TC[summary.q4$data$`Store IDs` %in% badStores.q4$`43`,4]
+
+phase1.t.mape <- ifelse(actuals.tg >= phase1.tg, actuals.tg - phase1.tg, phase1.tg - actuals.tg)/actuals.tg
+
+phase3.t.mape <- ifelse(actuals.tg >= phase3.tg, actuals.tg - phase3.tg, phase3.tg - actuals.tg)/actuals.tg
+
+plot_ly()%>%
+  add_trace(y= phase1.t.mape[phase1.t.mape <= quantile(phase1.t.mape, 0.90)], x = rep("Phase 1", round(0.90*length(actuals.tg))), name = "Store MAPEs after Phase 1.", type= "box", boxpoints = "all")%>%
+  add_trace(y= phase3.t.mape[phase3.t.mape <= quantile(phase3.t.mape, 0.90)], x = rep("Phase 3", round(0.90*length(actuals.tg))), name = "Store MAPEs after Phase 3.", type= "box", boxpoints = "all")%>%
+  config(displayModeBar = FALSE)%>%
+  layout(title="Store MAPEs for Thanksgiving Week.", 
+         xaxis=list(title="MAPE", linewidth=2, mirror=T, linecolor="BLACK"), 
+         yaxis=list(title="Phase", linewidth=2, mirror=T, linecolor="BLACK"))
+```
+
+<br>
+<br>
+<br>
+
+##
+```{r cStoreMod, echo = FALSE, fig.align='center', fig.height=5, fig.width=10}
+library(outliers)
+q4.demInfo$scalingC <- 1/(1+summary.q4$tc.mat[summary.q4$data$`Store IDs` %in% q4.demInfo$store_nbr,9])
+q4.demInfo$scalingC <- ifelse(q4.demInfo$badC == "GOOD", 1, q4.demInfo$scalingC)
+q4.demInfo$scalingC <- round(ifelse(q4.demInfo$scalingC!=1,
+                                    median(q4.demInfo$scalingC[q4.demInfo$scalingC!=1]),
+                                                                       1), 3)
+
+
+
+mod.summary.q4$data$scalingC <- ifelse(mod.summary.q4$data$`Store IDs` %in% q4.demInfo$store_nbr, q4.demInfo$scalingC, NA)                                  
+mod.summary.q4$data$scalingC <- ifelse(is.na(mod.summary.q4$data$scalingC), 1, mod.summary.q4$data$scalingC)
+
+mod.summary.q4$data$TC[,9] <-  mod.summary.q4$data$TC[,9]*mod.summary.q4$data$scalingC 
+
+mod.summary.q4 <- summarize(mod.summary.q4$data, 4)
+
+actuals.c <- summary.q4$data$Observed[summary.q4$data$`Store IDs` %in% badStores.q4$`48`,9]
+phase1.c <- summary.q4$data$TC[summary.q4$data$`Store IDs` %in% badStores.q4$`48`,9]
+phase3.c <- mod.summary.q4$data$TC[summary.q4$data$`Store IDs` %in% badStores.q4$`48`,9]
+
+phase1.c.mape <- ifelse(actuals.c >= phase1.c, actuals.c - phase1.c, phase1.c - actuals.c)/actuals.c
+
+phase3.c.mape <- ifelse(actuals.c >= phase3.c, actuals.c - phase3.c, phase3.c - actuals.c)/actuals.c
+
+plot_ly()%>%
+  add_trace(y= phase1.c.mape[phase1.c.mape <= quantile(phase1.c.mape, 0.90)], x = rep("Phase 1", 74), name = "Store MAPEs after Phase 1.", type= "box", boxpoints = "all")%>%
+  add_trace(y= phase3.c.mape[phase3.c.mape <= quantile(phase3.c.mape, 0.90)], x = rep("Phase 3", 74), name = "Store MAPEs after Phase 3.", type= "box", boxpoints = "all")%>%
+  config(displayModeBar = FALSE)%>%
+  layout(title="Store MAPEs for Christmas Week.", 
+         xaxis=list(title="MAPE", linewidth=2, mirror=T, linecolor="BLACK"), 
+         yaxis=list(title="Phase", linewidth=2, mirror=T, linecolor="BLACK"))
+
+
+```
+
+<br>
+<br>
+<br>
+    
+##
+```{r q1Mod, echo = F, fig.align="center", fig.width=10, fig.height=5}
+
+expected.q1.week <- apply(mod.summary.q1$bc.mat, 2, trimMean, trim = 0.975)
+
+plot_ly(x=~1:13)%>%
+          add_trace(y=~apply(summary.q1$bc.mat, 2, trimMean, trim=0.975), type="scatter", mode="lines+markers", name="BSTS+Custom")%>%
+          add_trace(y=~apply(summary.q1$bw.mat, 2, trimMean, trim=0.975), type="scatter", mode="lines+markers", name="BSTS+Walmart")%>%
+          add_trace(y=~apply(summary.q1$tc.mat, 2, trimMean, trim=0.975), type="scatter", mode="lines+markers", name="TBATS+Custom")%>%
+          add_trace(y=~apply(summary.q1$tw.mat, 2, trimMean, trim=0.975), type="scatter", mode="lines+markers", name="TBATS+Walmart")%>%
+          layout(title="Weekly MAPE for quarter 1", 
+                 xaxis=list(title="Week", linewidth=2, mirror=T, linecolor="BLACK"), 
+                 yaxis=list(title="Average MAPE", linewidth=2, mirror=T, linecolor="BLACK"))%>%
+config(displayModeBar = F)%>%
+  add_trace(y=~expected.q1.week, type="scatter", mode="lines+markers", name="BSTS + Custom (Improved)", line=list(width=1))%>%
+  add_trace(y=~cumsum(apply(summary.q1$bw.mat, 2, trimMean, trim=0.975))/seq_along(apply(summary.q1$bw.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Current Performance", line=list(width=3))%>%
+  add_trace(y=~cumsum(apply(summary.q1$bc.mat, 2, trimMean, trim=0.975))/seq_along(apply(summary.q1$bc.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Improvement after phase 1.", line=list(width=3))%>%
+  add_trace(y=~cumsum(expected.q1.week)/seq_along(expected.q1.week), type="scatter", mode="lines+markers", name="Improvement after phase 3", line=list(width=3))
+```
+
+<br>
+<br>
+<br>
+
+##
+```{r q4Mod, echo = F, fig.align="center", fig.width=10, fig.height=5}
+expected.q4.week <- apply(mod.summary.q4$tc.mat, 2, trimMean, trim = 0.975)
+plot_ly(x=~1:13)%>%
+          add_trace(y=~apply(summary.q4$bc.mat, 2, trimMean, trim=0.975), type="scatter", mode="lines+markers", name="BSTS+Custom")%>%
+          add_trace(y=~apply(summary.q4$bw.mat, 2, trimMean, trim=0.975), type="scatter", mode="lines+markers", name="BSTS+Walmart")%>%
+          add_trace(y=~apply(summary.q4$tc.mat, 2, trimMean, trim=0.975), type="scatter", mode="lines+markers", name="TBATS+Custom")%>%
+          add_trace(y=~apply(summary.q4$tw.mat, 2, trimMean, trim=0.975), type="scatter", mode="lines+markers", name="TBATS+Walmart")%>%
+          layout(title="Weekly MAPE for quarter 4", 
+                 xaxis=list(title="Week", linewidth=2, mirror=T, linecolor="BLACK"), 
+                 yaxis=list(title="Average MAPE", linewidth=2, mirror=T, linecolor="BLACK"))%>%
+config(displayModeBar = F)%>%
+  add_trace(y=~expected.q4.week, type="scatter", mode="lines+markers", name="TBATS + Custom (Improved)", line=list(width=1))%>%
+  add_trace(y=~cumsum(apply(summary.q4$bw.mat, 2, trimMean, trim=0.975))/seq_along(apply(summary.q4$bw.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Current Performance", line=list(width=3))%>%
+  add_trace(y=~cumsum(apply(summary.q4$tc.mat, 2, trimMean, trim=0.975))/seq_along(apply(summary.q4$tc.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Improvement after phase 1.", line=list(width=3))%>%
+  add_trace(y=~cumsum(expected.q4.week)/seq_along(expected.q4.week), type="scatter", mode="lines+markers", name="Improvement after phase 3", line=list(width=3))
+```
+<br>
+<br>
+<br>
+
+# Phase 4.
+
+## Introduction
+
+We will judge the efficacy of implementing Phase 4.
+
++ Improvement in overall performance due to scaling: 
+    - Quarter 1: from 11.25%, MAPE drops to 11.09% [16 basis points]
+    - Quarter 4: from 20.40%, MAPE drops to 19.90% [50 basis points]
++ Improvement in performance of forecasts of Bad stores due to scaling:
+    - Easter: 51.2%% to 29.2%
+    - Thanksgiving: 52% to 35%.
+    - Christmas: 110% to 58%.
+  
+## Visualising behavorial pattern of bad stores
+
+<br>
+<br>
+<br>
+
+```{r map, fig.height=10, fig.width=13, echo=F}
+df.10<-lapply(badStores.q1, findLocation)$`10`
+df.33<-lapply(badStores.q3, findLocation)$`33`
+df.43<-lapply(badStores.q4, findLocation)$`43`
+df.48<-lapply(badStores.q4, findLocation)$`48`
+
+
+
+
+g <- list(
+  scope = 'usa',
+  projection = list(type = 'albers usa'),
+  showland = TRUE,
+  landcolor = toRGB("gray95"),
+  subunitcolor = toRGB("black"),
+  countrycolor = toRGB("black"),
+  countrywidth = 1,
+  subunitwidth = 0.5
+)
+
+
+require(plotly)
+map<-suppressWarnings(plot_geo(df.10, lon = ~longitude_dgr,lat = ~latitude_dgr,  type="scattermapbox", mode="hover + markers",
+                   text = ~paste("Store Number: ", store_nbr, "<br>", 
+                                 "City Name: ", city_name), name="Easter", symbol=31)%>%
+add_trace(data= df.33, lon=df.33$longitude_dgr, lat=df.33$latitude_dgr,
+            text = ~paste("Store Number: ", store_nbr, "<br>",
+                          "City Name: ", city_name ),
+            name="Hurricane Harvey week",
+            symbol=5)%>%
+add_trace(data= df.43, lon=df.43$longitude_dgr, lat=df.43$latitude_dgr,
+                text = ~paste("Store Number: ", store_nbr, "<br>",
+                              "City Name: ", city_name ),
+                name="Thanksgiving",
+                symbol=27)%>%
+add_trace(data= df.48, lon=df.48$longitude_dgr, lat=df.48$latitude_dgr,
+            text = ~paste("Store Number: ", store_nbr, "<br>",
+                          "City Name: ", city_name ),
+            name="Christmas",
+            symbol=1)%>%
+  config(displayModeBar = F)%>%
+layout(title = "Store Locator", geo = g))
+
+
+
+
+map
+```
+
+    
