@@ -1,0 +1,122 @@
+############# LIBRARY #############
+require(plotly)
+require(outliers)
+
+
+############# SCALING FOR Q1 #############
+e.mapeCutOff <- as.numeric(quantile(summary.q1$bc.mat[,10], 0.865))
+mod.summary.q1 <- summary.q1
+##### scaling ####
+q1.demInfo$scalingE <- 1/(1+summary.q1$bc.mat[summary.q1$data$`Store IDs` %in% q1.demInfo$store_nbr,10])
+q1.demInfo$scalingE <- ifelse(q1.demInfo$badE == "GOOD", 1, q1.demInfo$scalingE)
+q1.demInfo$scalingE <- round(ifelse(q1.demInfo$scalingE!=1,
+                                    median(q1.demInfo$scalingE[q1.demInfo$scalingE!=1]),
+                                    1),3)
+
+scalingE <- ifelse(mod.summary.q1$data$`Store IDs` %in% q1.demInfo$store_nbr, q1.demInfo$scalingE, NA) 
+scalingE <- ifelse(is.na(scalingE), 1, scalingE)              
+mod.summary.q1$data$BC[,10] <-  mod.summary.q1$data$BC[,10]*scalingE 
+##### summary post scaling ####
+mod.summary.q1 <- summarize(mod.summary.q1$data, 1)
+
+##### plot weeks after scaling ####
+expected.q1.week <- apply(mod.summary.q1$bc.mat, 2, trimMean, trim = 0.975)
+
+summary.q1$weekPlot%>%
+  add_trace(y=~expected.q1.week, type="scatter", mode="lines+markers", name="BSTS + Custom (Improved)", line=list(width=3) )%>%
+  add_trace(y=~cumsum(apply(summary.q1$bw.mat, 2, trimMean, trim=0.975))/seq_along(apply(summary.q1$bw.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Actual Performance of Current model", line=list(width=3))%>%
+  add_trace(y=~cumsum(apply(summary.q1$bc.mat, 2, trimMean, trim=0.975))/seq_along(apply(summary.q1$bc.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Actual Performance of Best model", line=list(width=3))%>%
+  add_trace(y=~cumsum(expected.q1.week)/seq_along(expected.q1.week), type="scatter", mode="lines+markers", name="Improved Performance of Best model", line=list(width=3) )
+
+##### plot improvements for BAD after scaling ####
+actuals.easter <- summary.q1$data$Observed[summary.q1$data$`Store IDs` %in% badStores.q1$`10`,10]
+phase1.easter <- summary.q1$data$BC[summary.q1$data$`Store IDs` %in% badStores.q1$`10`,10]
+phase3.easter <- mod.summary.q1$data$BC[summary.q1$data$`Store IDs` %in% badStores.q1$`10`,10]
+
+phase1.e.mape <- ifelse(actuals.easter >= phase1.easter, actuals.easter - phase1.easter, phase1.easter - actuals.easter)/actuals.easter
+phase3.e.mape <- ifelse(actuals.easter >= phase3.easter, actuals.easter - phase3.easter, phase3.easter - actuals.easter)/actuals.easter
+
+data.frame(phase1 = mean(phase1.e.mape[phase1.e.mape <= quantile(phase1.e.mape, 0.9)]), 
+           phase3 =mean(phase3.e.mape[phase3.e.mape <= quantile(phase3.e.mape, 0.9)]))
+
+plot_ly()%>%
+  add_trace(y= phase1.e.mape[phase1.e.mape <= quantile(phase1.e.mape, 0.90)], x = rep("Phase 1", round(0.90*length(actuals.easter))), name = "Store MAPEs after Phase 1.", type= "box", boxpoints = "all")%>%
+  add_trace(y= phase3.e.mape[phase3.e.mape <= quantile(phase3.e.mape, 0.90)], x = rep("Phase 3", round(0.90*length(actuals.easter))), name = "Store MAPEs after Phase 3.", type= "box", boxpoints = "all")%>%
+  config(displayModeBar = FALSE)%>%
+  layout(title="Store MAPEs for Easter Week.", 
+         xaxis=list(title="MAPE", linewidth=2, mirror=T, linecolor="BLACK"), 
+         yaxis=list(title="Phase", linewidth=2, mirror=T, linecolor="BLACK"))
+
+
+############# SCALING FOR Q4 #############
+mod.summary.q4 <- summary.q4
+#### scaling: Thanksgiving ####
+    q4.demInfo$scalingT <- 1/(1+summary.q4$tc.mat[summary.q4$data$`Store IDs` %in% q4.demInfo$store_nbr,4])
+    q4.demInfo$scalingT <- ifelse(q4.demInfo$badT == "GOOD", 1, q4.demInfo$scalingT)
+    q4.demInfo$scalingT <- round(ifelse(q4.demInfo$scalingT!=1,
+                                        median(q4.demInfo$scalingT[q4.demInfo$scalingT!=1]),
+                                        1),3)
+    
+    
+    
+    scaleT <- ifelse(mod.summary.q4$data$`Store IDs` %in% q4.demInfo$store_nbr, q4.demInfo$scalingT, NA)
+    scaleT <- ifelse(is.na(scaleT), 1, scaleT)     
+    
+    mod.summary.q4$data$TC[,4] <-  mod.summary.q4$data$TC[,4]*scaleT
+
+#### scaling: Christmas ####
+    q4.demInfo$scalingC <- 1/(1+summary.q4$tc.mat[summary.q4$data$`Store IDs` %in% q4.demInfo$store_nbr,9])
+    q4.demInfo$scalingC <- ifelse(q4.demInfo$badC == "GOOD", 1, q4.demInfo$scalingC)
+    q4.demInfo$scalingC <- round(ifelse(q4.demInfo$scalingC!=1,
+                                        median(q4.demInfo$scalingC[q4.demInfo$scalingC!=1]),
+                                        1), 3)
+    
+    mod.summary.q4$data$scalingC <- ifelse(mod.summary.q4$data$`Store IDs` %in% q4.demInfo$store_nbr, q4.demInfo$scalingC, NA)                                  
+    mod.summary.q4$data$scalingC <- ifelse(is.na(mod.summary.q4$data$scalingC), 1, mod.summary.q4$data$scalingC)
+    
+    mod.summary.q4$data$TC[,9] <-  mod.summary.q4$data$TC[,9]*mod.summary.q4$data$scalingC
+    
+##### summary post scaling #####
+    mod.summary.q4 <- summarize(mod.summary.q4$data, 4)
+##### plot weeks after scaling ####    
+    expected.q4.week <- apply(mod.summary.q4$tc.mat, 2, trimMean, trim = 0.975)
+    
+    summary.q4$weekPlot%>%
+      add_trace(y=~expected.q4.week, type="scatter", mode="lines+markers", name="TBATS + Custom (Improved)", line=list(width=3) )%>%
+      add_trace(y=~cumsum(apply(summary.q4$bw.mat, 2, trimMean, trim=0.975))/seq_along(apply(summary.q4$bw.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Actual Performance of Current model", line=list(width=3))%>%
+      add_trace(y=~cumsum(apply(summary.q4$tc.mat, 2, trimMean, trim=0.975))/seq_along(apply(summary.q4$tc.mat, 2, trimMean, trim=0.975)), type="scatter", mode="lines+markers", name="Actual Performance of Best model", line=list(width=3))%>%
+      add_trace(y=~cumsum(expected.q4.week)/seq_along(expected.q4.week), type="scatter", mode="lines+markers", name="Improved Performance of Best model", line=list(width=3) )
+
+##### plot improvements for BAD after scaling: Thanksgiving ####
+    actuals.tg <- summary.q4$data$Observed[summary.q4$data$`Store IDs` %in% badStores.q4$`43`,4]
+    phase1.tg <- summary.q4$data$TC[summary.q4$data$`Store IDs` %in% badStores.q4$`43`,4]
+    phase3.tg <- mod.summary.q4$data$TC[summary.q4$data$`Store IDs` %in% badStores.q4$`43`,4]
+    
+    phase1.t.mape <- ifelse(actuals.tg >= phase1.tg, actuals.tg - phase1.tg, phase1.tg - actuals.tg)/actuals.tg
+    
+    phase3.t.mape <- ifelse(actuals.tg >= phase3.tg, actuals.tg - phase3.tg, phase3.tg - actuals.tg)/actuals.tg
+    
+    plot_ly()%>%
+      add_trace(y= phase1.t.mape[phase1.t.mape <= quantile(phase1.t.mape, 0.90)], x = rep("Phase 1", round(0.90*length(actuals.tg))), name = "Store MAPEs after Phase 1.", type= "box", boxpoints = "all")%>%
+      add_trace(y= phase3.t.mape[phase3.t.mape <= quantile(phase3.t.mape, 0.90)], x = rep("Phase 3", round(0.90*length(actuals.tg))), name = "Store MAPEs after Phase 3.", type= "box", boxpoints = "all")%>%
+      config(displayModeBar = FALSE)%>%
+      layout(title="Store MAPEs for Thanksgiving Week.", 
+             xaxis=list(title="MAPE", linewidth=2, mirror=T, linecolor="BLACK"), 
+             yaxis=list(title="Phase", linewidth=2, mirror=T, linecolor="BLACK"))
+##### plot improvements for BAD after scaling: Christmas ####
+    actuals.c <- summary.q4$data$Observed[summary.q4$data$`Store IDs` %in% badStores.q4$`48`,9]
+    phase1.c <- summary.q4$data$TC[summary.q4$data$`Store IDs` %in% badStores.q4$`48`,9]
+    phase3.c <- mod.summary.q4$data$TC[summary.q4$data$`Store IDs` %in% badStores.q4$`48`,9]
+    
+    phase1.c.mape <- ifelse(actuals.c >= phase1.c, actuals.c - phase1.c, phase1.c - actuals.c)/actuals.c
+    
+    phase3.c.mape <- ifelse(actuals.c >= phase3.c, actuals.c - phase3.c, phase3.c - actuals.c)/actuals.c
+    
+    plot_ly()%>%
+      add_trace(y= phase1.c.mape[phase1.c.mape <= quantile(phase1.c.mape, 0.90)], x = rep("Phase 1", 74), name = "Store MAPEs after Phase 1.", type= "box", boxpoints = "all")%>%
+      add_trace(y= phase3.c.mape[phase3.c.mape <= quantile(phase3.c.mape, 0.90)], x = rep("Phase 3", 74), name = "Store MAPEs after Phase 3.", type= "box", boxpoints = "all")%>%
+      config(displayModeBar = FALSE)%>%
+      layout(title="Store MAPEs for Christmas Week.", 
+             xaxis=list(title="MAPE", linewidth=2, mirror=T, linecolor="BLACK"), 
+             yaxis=list(title="Phase", linewidth=2, mirror=T, linecolor="BLACK"))
+    
