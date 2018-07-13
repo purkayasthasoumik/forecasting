@@ -1,0 +1,81 @@
+############# LIBRARY #############
+require(dplyr)
+require(plotly)
+
+############# FIND GEO. INFO OF STORE #############
+findLocation<-function(st.nm){
+  filter(markRes, markRes$store_nbr %in% st.nm)[,c(3,6,7, 8)]
+}
+
+############# TRASH CODE #############
+plotMap<-function(df)
+{
+  # geo styling
+  g <- list(
+    scope = 'usa',
+    projection = list(type = 'albers usa'),
+    showland = TRUE,
+    landcolor = toRGB("gray95"),
+    subunitcolor = toRGB("black"),
+    countrycolor = toRGB("black"),
+    countrywidth = 0.5,
+    subunitwidth = 0.5
+  )
+  
+  require(plotly)
+  map<-plot_geo(df, lon = ~longitude_dgr,lat = ~latitude_dgr,  type="scattermapbox", mode="hover",
+                text = ~paste("Store Number: ", store_nbr, "<br>", 
+                              "City Name: ", city_name )) %>%
+    layout(title = "BAD STORES", geo = g)
+  
+  return(map) 
+}
+maps.q1<-lapply(lapply(badStores.q1, findLocation), plotMap)
+maps.q2<-lapply(lapply(badStores.q2, findLocation), plotMap)
+maps.q3<-lapply(lapply(badStores.q3, findLocation), plotMap)
+maps.q4<-lapply(lapply(badStores.q4, findLocation), plotMap)
+  
+          
+   
+
+############# FIND BAD STORES #############
+df.10<-lapply(badStores.q1, findLocation)$`10`
+df.33<-lapply(badStores.q3, findLocation)$`33`
+df.43<-lapply(badStores.q4, findLocation)$`43`
+df.48<-lapply(badStores.q4, findLocation)$`48`
+
+
+############# PLOT BAD STORES #############
+g <- list(
+  scope = 'usa',
+  projection = list(type = 'albers usa'),
+  showland = TRUE,
+  landcolor = toRGB("gray95"),
+  subunitcolor = toRGB("black"),
+  countrycolor = toRGB("black"),
+  countrywidth = 1,
+  subunitwidth = 0.5
+)
+
+
+require(plotly)
+map<-plot_geo(df.10, lon = ~longitude_dgr,lat = ~latitude_dgr,  type="scattermapbox", mode="hover",
+              text = ~paste("Store Number: ", store_nbr, "<br>", 
+                            "City Name: ", city_name), name="Easter", symbol=1)%>%
+  add_trace(data= df.33, lon=df.33$longitude_dgr, lat=df.33$latitude_dgr,
+            text = ~paste("Store Number: ", store_nbr, "<br>",
+                          "City Name: ", city_name ),
+            name="Hurricane Harvey week",
+            symbol=5)%>%
+  add_trace(data= df.43, lon=df.43$longitude_dgr, lat=df.43$latitude_dgr,
+            text = ~paste("Store Number: ", store_nbr, "<br>",
+                          "City Name: ", city_name ),
+            name="Thanksgiving",
+            symbol=27)%>%
+  add_trace(data= df.48, lon=df.48$longitude_dgr, lat=df.48$latitude_dgr,
+            text = ~paste("Store Number: ", store_nbr, "<br>",
+                          "City Name: ", city_name ),
+            name="Christmas",
+            symbol=31)%>%
+  layout(title = "Store Locator", geo = g)
+map 
